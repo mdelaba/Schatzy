@@ -54,12 +54,17 @@ class FallingBallView(context: Context) : View(context) {
     }
 
     private val bottomImageResIds = listOf(
-        R.drawable.amelie1
+        R.drawable.amelie1,
+        R.drawable.amelie2,
+        R.drawable.amelie3,
+        R.drawable.amelie4,
+        R.drawable.amelie5,
+        R.drawable.amelie6
     )
 
     private val bottomScaledBitmaps: List<Bitmap> = bottomImageResIds.map { resId ->
         val originalBitmap = BitmapFactory.decodeResource(resources, resId)
-        Bitmap.createScaledBitmap(originalBitmap, 150, 150, true)
+        Bitmap.createScaledBitmap(originalBitmap, 150, 250, true)
     }
 
     private var amelieBitmap: Bitmap = bottomScaledBitmaps.random()
