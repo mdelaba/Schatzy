@@ -22,8 +22,7 @@ class FallingBallView(context: Context) : View(context) {
     private val numberOfGoodImages = 3
     private val numberOfBadImages = 3
 
-    private val amelieOffsetFromBottom = 240f // Increase to move her higher up
-
+    private val amelieOffsetFromBottom = 240f
     private val handler = Handler(Looper.getMainLooper())
     private val frameRate = 16L
 
@@ -43,16 +42,6 @@ class FallingBallView(context: Context) : View(context) {
         R.drawable.my_jokes
     )
 
-    private val goodScaledBitmaps: List<Bitmap> = goodImageResIds.map { resId ->
-        val originalBitmap = BitmapFactory.decodeResource(resources, resId)
-        Bitmap.createScaledBitmap(originalBitmap, 100, 100, true)
-    }
-
-    private val badScaledBitmaps: List<Bitmap> = badImageResIds.map { resId ->
-        val originalBitmap = BitmapFactory.decodeResource(resources, resId)
-        Bitmap.createScaledBitmap(originalBitmap, 100, 100, true)
-    }
-
     private val bottomImageResIds = listOf(
         R.drawable.amelie1,
         R.drawable.amelie2,
@@ -62,15 +51,15 @@ class FallingBallView(context: Context) : View(context) {
         R.drawable.amelie6
     )
 
-    private val bottomScaledBitmaps: List<Bitmap> = bottomImageResIds.map { resId ->
-        val originalBitmap = BitmapFactory.decodeResource(resources, resId)
-        Bitmap.createScaledBitmap(originalBitmap, 150, 250, true)
-    }
+    private var goodScaledBitmaps: List<Bitmap> = emptyList()
+    private var badScaledBitmaps: List<Bitmap> = emptyList()
+    private var bottomScaledBitmaps: List<Bitmap> = emptyList()
 
-    private var amelieBitmap: Bitmap = bottomScaledBitmaps.random()
-
+    private lateinit var amelieBitmap: Bitmap
     private var amelieX = 300f
-    private var amelieY = 0f  // will be set based on height in onSizeChanged()
+    private var amelieY = 0f
+
+    private var imagesLoaded = false
 
     private val textPaint = Paint().apply {
         color = Color.WHITE
@@ -84,11 +73,7 @@ class FallingBallView(context: Context) : View(context) {
                 image.y += image.speed
 
                 if (checkCollision(image)) {
-                    if (image.isGood) {
-                        score++
-                    } else {
-                        lives--
-                    }
+                    if (image.isGood) score++ else lives--
 
                     image.y = -image.bitmap.height.toFloat()
                     image.x = Random.nextFloat() * width.toFloat()
@@ -110,47 +95,76 @@ class FallingBallView(context: Context) : View(context) {
     }
 
     init {
-        repeat(numberOfGoodImages) {
-            val bitmap = goodScaledBitmaps.random()
-            fallingImages.add(
-                FallingImage(
-                    x = Random.nextFloat() * 800f,
-                    y = Random.nextFloat() * -1000f,
-                    speed = Random.nextFloat() * 10f + 5f,
-                    bitmap = bitmap,
-                    isGood = true
-                )
-            )
-        }
+        Thread {
+            val goodBitmaps = goodImageResIds.map {
+                val bmp = BitmapFactory.decodeResource(resources, it)
+                Bitmap.createScaledBitmap(bmp, 100, 100, true)
+            }
+            val badBitmaps = badImageResIds.map {
+                val bmp = BitmapFactory.decodeResource(resources, it)
+                Bitmap.createScaledBitmap(bmp, 100, 100, true)
+            }
+            val bottomBitmaps = bottomImageResIds.map {
+                val bmp = BitmapFactory.decodeResource(resources, it)
+                Bitmap.createScaledBitmap(bmp, 150, 250, true)
+            }
 
-        repeat(numberOfBadImages) {
-            val bitmap = badScaledBitmaps.random()
-            fallingImages.add(
-                FallingImage(
-                    x = Random.nextFloat() * 800f,
-                    y = Random.nextFloat() * -1000f,
-                    speed = Random.nextFloat() * 10f + 5f,
-                    bitmap = bitmap,
-                    isGood = false
-                )
-            )
-        }
+            post {
+                goodScaledBitmaps = goodBitmaps
+                badScaledBitmaps = badBitmaps
+                bottomScaledBitmaps = bottomBitmaps
+                amelieBitmap = bottomScaledBitmaps.random()
 
-        handler.post(updateRunnable)
+                amelieY = height.toFloat() - amelieBitmap.height - amelieOffsetFromBottom
+
+                repeat(numberOfGoodImages) {
+                    fallingImages.add(
+                        FallingImage(
+                            x = Random.nextFloat() * 800f,
+                            y = Random.nextFloat() * -1000f,
+                            speed = Random.nextFloat() * 10f + 5f,
+                            bitmap = goodScaledBitmaps.random(),
+                            isGood = true
+                        )
+                    )
+                }
+
+                repeat(numberOfBadImages) {
+                    fallingImages.add(
+                        FallingImage(
+                            x = Random.nextFloat() * 800f,
+                            y = Random.nextFloat() * -1000f,
+                            speed = Random.nextFloat() * 10f + 5f,
+                            bitmap = badScaledBitmaps.random(),
+                            isGood = false
+                        )
+                    )
+                }
+
+                imagesLoaded = true
+                handler.post(updateRunnable)
+                invalidate()
+            }
+        }.start()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(Color.BLACK)
 
+        if (!imagesLoaded) {
+            textPaint.textAlign = Paint.Align.CENTER
+            canvas.drawText("Loading...", width / 2f, height / 2f, textPaint)
+            return
+        }
+
         for (image in fallingImages) {
             canvas.drawBitmap(image.bitmap, image.x, image.y, null)
         }
 
-        // Draw Amelie at bottom
         canvas.drawBitmap(amelieBitmap, amelieX, amelieY, null)
 
-        // Draw score and lives
+        textPaint.textAlign = Paint.Align.LEFT
         canvas.drawText("Score: $score", 20f, 60f, textPaint)
         canvas.drawText("Lives: $lives", 20f, 120f, textPaint)
     }
@@ -161,9 +175,10 @@ class FallingBallView(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!imagesLoaded) return false
+
         if (event.action == MotionEvent.ACTION_MOVE || event.action == MotionEvent.ACTION_DOWN) {
-            // Clamp Amelie to screen bounds
-            amelieX = event.x.coerceIn(0f, width.toFloat() - amelieBitmap.width)
+            amelieX = (event.x - amelieBitmap.width / 2f).coerceIn(0f, width.toFloat() - amelieBitmap.width)
             invalidate()
         }
         return true
@@ -177,6 +192,9 @@ class FallingBallView(context: Context) : View(context) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        amelieY = h.toFloat() - amelieBitmap.height - amelieOffsetFromBottom
+        if (imagesLoaded) {
+            amelieY = h.toFloat() - amelieBitmap.height - amelieOffsetFromBottom
+        }
     }
+
 }
