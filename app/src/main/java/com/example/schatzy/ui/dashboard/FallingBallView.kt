@@ -33,7 +33,7 @@ class FallingBallView(context: Context) : View(context) {
     private val goodImageResIds = listOf(
         R.drawable.pasta,
         R.drawable.tofu,
-        R.drawable.broccoli
+        R.drawable.carrot
     )
 
     private val badImageResIds = listOf(
