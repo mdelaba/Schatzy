@@ -71,7 +71,7 @@ class FarmGameView(context: Context) : View(context) {
     private val animals = mutableListOf<FarmAnimal>()
     private val crops = mutableListOf<Crop>()
     private var score = 0
-    private var hearts = 50
+    private var hearts = 0
     private var food = 20
     private var coins = 100
     private var highScore = 0
@@ -544,10 +544,13 @@ class FarmGameView(context: Context) : View(context) {
                 }
             }
             AnimalState.HAPPY -> {
-                // Give bonus resources and show heart animation
-                hearts += 1
-                score += 2
-                addFloatingHeart(animal.x + animal.size / 2, animal.y)
+                // Give bonus resources and show heart animation (costs food)
+                if (food >= 1) {
+                    food -= 1
+                    hearts += 1
+                    score += 2
+                    addFloatingHeart(animal.x + animal.size / 2, animal.y)
+                }
             }
             AnimalState.HEALING -> {
                 // Animals healing cannot be interacted with
@@ -807,8 +810,8 @@ class FarmGameView(context: Context) : View(context) {
         var y: Float
         var attempts = 0
         do {
-            // More restrictive spawn area: avoid corners and UI areas
-            x = Random.nextFloat() * (width - 450f).coerceAtLeast(150f) + 150f
+            // More restrictive spawn area: avoid corners, UI areas, and upgrade buttons
+            x = Random.nextFloat() * (width - 320f).coerceAtLeast(150f) + 150f
             y = Random.nextFloat() * (height - 650f).coerceAtLeast(300f) + 300f
             attempts++
         } while ((isPositionInAnyFence(x + 60f, y + 60f) || 
@@ -847,7 +850,7 @@ class FarmGameView(context: Context) : View(context) {
 
     fun restartGame() {
         score = 0
-        hearts = 50
+        hearts = 0
         food = 20
         coins = 100
         animals.clear()
