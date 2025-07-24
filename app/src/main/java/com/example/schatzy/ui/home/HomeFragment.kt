@@ -8,14 +8,14 @@ import android.view.ViewGroup
 import android.widget.RadioButton
 import android.widget.Toast
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.viewModels
+import androidx.lifecycle.ViewModelProvider
 import com.example.schatzy.databinding.FragmentHomeBinding
 
 class HomeFragment : Fragment() {
 
     private var _binding: FragmentHomeBinding? = null
     private val binding get() = _binding!!
-    private val viewModel: HomeViewModel by viewModels()
+    private lateinit var viewModel: HomeViewModel
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -23,6 +23,7 @@ class HomeFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         _binding = FragmentHomeBinding.inflate(inflater, container, false)
+        viewModel = ViewModelProvider(this)[HomeViewModel::class.java]
         return binding.root
     }
 
@@ -72,6 +73,14 @@ class HomeFragment : Fragment() {
                 binding.errorTextView.visibility = View.GONE
             }
         }
+
+        viewModel.score.observe(viewLifecycleOwner) { score ->
+            updateScoreDisplay(score ?: 0, viewModel.highScore.value ?: 0)
+        }
+
+        viewModel.highScore.observe(viewLifecycleOwner) { highScore ->
+            updateScoreDisplay(viewModel.score.value ?: 0, highScore ?: 0)
+        }
     }
 
     private fun setupClickListeners() {
@@ -89,6 +98,12 @@ class HomeFragment : Fragment() {
             viewModel.moveToNextQuestion()
             binding.answersRadioGroup.clearCheck()
         }
+
+        binding.restartButton.setOnClickListener {
+            viewModel.restartQuiz()
+            binding.answersRadioGroup.clearCheck()
+            binding.restartButton.visibility = View.GONE
+        }
     }
 
     private fun displayQuestion(question: com.example.schatzy.data.Question) {
@@ -104,11 +119,21 @@ class HomeFragment : Fragment() {
         binding.questionCard.visibility = View.GONE
         binding.feedbackTextView.visibility = View.GONE
         binding.nextButton.visibility = View.GONE
-        Toast.makeText(
-            context,
-            "Quiz completed!",
-            Toast.LENGTH_LONG
-        ).show()
+        binding.restartButton.visibility = View.VISIBLE
+        
+        val finalScore = viewModel.score.value ?: 0
+        val highScore = viewModel.highScore.value ?: 0
+        val message = if (finalScore > 0 && finalScore == highScore) {
+            "Quiz completed! New high score: $finalScore"
+        } else {
+            "Quiz completed! Final score: $finalScore"
+        }
+        
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun updateScoreDisplay(score: Int, highScore: Int) {
+        binding.scoreTextView.text = "Score: $score | High Score: $highScore"
     }
 
     override fun onDestroyView() {
