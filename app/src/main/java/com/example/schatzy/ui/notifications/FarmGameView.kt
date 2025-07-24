@@ -16,8 +16,7 @@ class FarmGameView(context: Context) : View(context) {
         HORSE("Horse"), 
         PIG("Pig"),
         CHICKEN("Chicken"),
-        SHEEP("Sheep"),
-        GOAT("Goat")
+        SHEEP("Sheep")
     }
 
     enum class AnimalState {
@@ -60,14 +59,13 @@ class FarmGameView(context: Context) : View(context) {
     private val animalSpawnRate = 5000L // 5 seconds
     private var lastSpawnTime = System.currentTimeMillis()
 
-    // Animal images (placeholder names for now)
+    // Animal images
     private val animalImageMap = mapOf(
-        AnimalType.COW to R.drawable.carrot, // Placeholder - will need cow.png
-        AnimalType.HORSE to R.drawable.pasta, // Placeholder - will need horse.png
-        AnimalType.PIG to R.drawable.cheese, // Placeholder - will need pig.png
-        AnimalType.CHICKEN to R.drawable.tofu, // Placeholder - will need chicken.png
-        AnimalType.SHEEP to R.drawable.steak, // Placeholder - will need sheep.png
-        AnimalType.GOAT to R.drawable.my_jokes // Placeholder - will need goat.png
+        AnimalType.COW to R.drawable.cow,
+        AnimalType.HORSE to R.drawable.horse,
+        AnimalType.PIG to R.drawable.pig,
+        AnimalType.CHICKEN to R.drawable.chicken,
+        AnimalType.SHEEP to R.drawable.sheep
     )
 
     private var animalBitmaps: Map<AnimalType, Bitmap> = emptyMap()
