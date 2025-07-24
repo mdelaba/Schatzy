@@ -38,7 +38,9 @@ class FarmGameView(context: Context) : View(context) {
         var y: Float,
         var state: CropState,
         var plantedTime: Long = System.currentTimeMillis(),
-        val size: Float = 80f
+        val size: Float = 80f,
+        val gridRow: Int,
+        val gridCol: Int
     ) {
         fun getBounds(): RectF {
             return RectF(x, y, x + size, y + size)
@@ -80,12 +82,17 @@ class FarmGameView(context: Context) : View(context) {
 
     // Game settings
     private val maxAnimals = 8
-    private val maxCrops = 6
+    private val cropGridRows = 2
+    private val cropGridCols = 4
+    private val maxCrops = cropGridRows * cropGridCols // 2x4 = 8 max crops
     private val animalSpawnRate = 5000L // 5 seconds
     private val cropGrowthTime = 8000L // 8 seconds to grow fully
     private val healingTime = 5000L // 5 seconds to heal
     private var lastSpawnTime = System.currentTimeMillis()
     private var lastCropPlant = System.currentTimeMillis()
+    
+    // Grid for crop positions
+    private val cropGrid = Array(cropGridRows) { Array(cropGridCols) { false } }
 
     // Animal images
     private val animalImageMap = mapOf(
@@ -97,6 +104,8 @@ class FarmGameView(context: Context) : View(context) {
     )
 
     private var animalBitmaps: Map<AnimalType, Bitmap> = emptyMap()
+    private var wheatUngrownBitmap: Bitmap? = null
+    private var wheatGrownBitmap: Bitmap? = null
     private var imagesLoaded = false
 
     // Paint objects
@@ -155,9 +164,17 @@ class FarmGameView(context: Context) : View(context) {
                 val bitmap = BitmapFactory.decodeResource(resources, resourceId)
                 bitmapMap[animalType] = Bitmap.createScaledBitmap(bitmap, 120, 120, true)
             }
+            
+            // Load wheat images
+            val wheatUngrownOriginal = BitmapFactory.decodeResource(resources, R.drawable.wheat_ungrown)
+            val wheatGrownOriginal = BitmapFactory.decodeResource(resources, R.drawable.wheat_grown)
+            val wheatUngrown = Bitmap.createScaledBitmap(wheatUngrownOriginal, 80, 80, true)
+            val wheatGrown = Bitmap.createScaledBitmap(wheatGrownOriginal, 80, 80, true)
 
             post {
                 animalBitmaps = bitmapMap
+                wheatUngrownBitmap = wheatUngrown
+                wheatGrownBitmap = wheatGrown
                 imagesLoaded = true
                 spawnInitialAnimals()
                 handler.post(gameLoop)
@@ -173,7 +190,7 @@ class FarmGameView(context: Context) : View(context) {
     }
 
     private fun plantInitialCrops() {
-        repeat(3) {
+        repeat(4) {
             plantCrop()
         }
     }
@@ -181,10 +198,22 @@ class FarmGameView(context: Context) : View(context) {
     private fun plantCrop() {
         if (crops.size >= maxCrops) return
 
-        val x = cropArea.left + (cropArea.width() * Random.nextFloat() * 0.8f)
-        val y = cropArea.top + (cropArea.height() * Random.nextFloat() * 0.8f)
-        
-        crops.add(Crop(x, y, CropState.PLANTED))
+        // Find an empty grid spot
+        for (row in 0 until cropGridRows) {
+            for (col in 0 until cropGridCols) {
+                if (!cropGrid[row][col]) {
+                    // Calculate position in grid
+                    val cellWidth = cropArea.width() / cropGridCols
+                    val cellHeight = cropArea.height() / cropGridRows
+                    val x = cropArea.left + (col * cellWidth) + (cellWidth - 80f) / 2
+                    val y = cropArea.top + (row * cellHeight) + (cellHeight - 80f) / 2
+                    
+                    cropGrid[row][col] = true
+                    crops.add(Crop(x, y, CropState.PLANTED, System.currentTimeMillis(), 80f, row, col))
+                    return
+                }
+            }
+        }
     }
 
     private fun spawnAnimal() {
@@ -356,31 +385,25 @@ class FarmGameView(context: Context) : View(context) {
     }
 
     private fun drawCrop(canvas: Canvas, crop: Crop) {
-        val centerX = crop.x + crop.size / 2
-        val centerY = crop.y + crop.size / 2
-        
         when (crop.state) {
-            CropState.PLANTED -> {
-                // Small green circle (seedling)
-                cropPaint.color = Color.rgb(0, 128, 0)
-                canvas.drawCircle(centerX, centerY, 15f, cropPaint)
-            }
-            CropState.GROWING -> {
-                // Medium green circle (growing plant)
-                cropPaint.color = Color.rgb(0, 155, 0)
-                canvas.drawCircle(centerX, centerY, 25f, cropPaint)
+            CropState.PLANTED, CropState.GROWING -> {
+                // Draw ungrown wheat
+                wheatUngrownBitmap?.let { bitmap ->
+                    canvas.drawBitmap(bitmap, crop.x, crop.y, null)
+                }
             }
             CropState.READY -> {
-                // Large bright green circle (ready to harvest)
-                cropPaint.color = Color.rgb(0, 200, 0)
-                canvas.drawCircle(centerX, centerY, 35f, cropPaint)
-                // Add golden outline to show it's ready
+                // Draw grown wheat
+                wheatGrownBitmap?.let { bitmap ->
+                    canvas.drawBitmap(bitmap, crop.x, crop.y, null)
+                }
+                // Add golden outline to show it's ready to harvest
                 val outlinePaint = Paint().apply {
                     color = Color.YELLOW
                     style = Paint.Style.STROKE
                     strokeWidth = 4f
                 }
-                canvas.drawCircle(centerX, centerY, 35f, outlinePaint)
+                canvas.drawRect(crop.x, crop.y, crop.x + crop.size, crop.y + crop.size, outlinePaint)
             }
         }
     }
@@ -425,6 +448,9 @@ class FarmGameView(context: Context) : View(context) {
                         if (animal.state == AnimalState.SICK) {
                             // Start dragging sick animal
                             draggedAnimal = animal
+                        } else if (animal.state == AnimalState.HAPPY && healingFenceArea.contains(animal.x + animal.size / 2, animal.y + animal.size / 2)) {
+                            // Remove healed animal from fence
+                            removeAnimalFromFence(animal)
                         } else {
                             rescueAnimal(animal)
                         }
@@ -496,6 +522,9 @@ class FarmGameView(context: Context) : View(context) {
     private fun harvestCrop(crop: Crop) {
         food += 3
         score += 8
+        
+        // Clear the grid spot
+        cropGrid[crop.gridRow][crop.gridCol] = false
         crops.remove(crop)
         
         // Check for new high score
@@ -510,6 +539,22 @@ class FarmGameView(context: Context) : View(context) {
                 plantCrop()
             }
         }, 2000)
+    }
+
+    private fun removeAnimalFromFence(animal: FarmAnimal) {
+        // Move animal to a random position outside the fence
+        do {
+            animal.x = Random.nextFloat() * (width - 120f).coerceAtLeast(0f)
+            animal.y = Random.nextFloat() * (height - 300f).coerceAtLeast(200f) + 200f
+        } while (healingFenceArea.contains(animal.x + animal.size / 2, animal.y + animal.size / 2))
+        
+        score += 3
+        
+        // Check for new high score
+        if (score > highScore) {
+            highScore = score
+            saveHighScore()
+        }
     }
 
     private fun startHealing(animal: FarmAnimal) {
@@ -551,6 +596,14 @@ class FarmGameView(context: Context) : View(context) {
         animals.clear()
         crops.clear()
         draggedAnimal = null
+        
+        // Clear crop grid
+        for (row in 0 until cropGridRows) {
+            for (col in 0 until cropGridCols) {
+                cropGrid[row][col] = false
+            }
+        }
+        
         gameRunning = true
         spawnInitialAnimals()
         plantInitialCrops()
