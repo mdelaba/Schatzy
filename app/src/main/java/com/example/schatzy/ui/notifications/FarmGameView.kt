@@ -695,8 +695,8 @@ class FarmGameView(context: Context) : View(context) {
         val buttonWidth = 140f
         val buttonHeight = 80f
         val margin = 10f
-        val startX = width - 280f
-        val startY = height - 600f
+        val startX = width - 160f
+        val startY = height - 750f
         
         val buttonPaint = Paint().apply {
             style = Paint.Style.FILL
@@ -744,8 +744,8 @@ class FarmGameView(context: Context) : View(context) {
         val buttonWidth = 140f
         val buttonHeight = 80f
         val margin = 10f
-        val startX = width - 280f
-        val startY = height - 600f
+        val startX = width - 160f
+        val startY = height - 750f
         
         var yOffset = 0f
         
