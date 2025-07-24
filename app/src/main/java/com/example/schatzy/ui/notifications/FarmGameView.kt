@@ -77,7 +77,10 @@ class FarmGameView(context: Context) : View(context) {
     private var highScore = 0
 
     // Farm areas
-    private val healingFenceArea = RectF(50f, 300f, 200f, 450f) // Healing fence area
+    private val healingFenceArea = RectF(50f, 300f, 200f, 450f) // Primary healing fence area
+    private val healingFenceArea2 = RectF(50f, 470f, 200f, 620f) // Secondary healing fence area
+    private val healingFenceArea3 = RectF(220f, 300f, 370f, 450f) // Third healing fence area
+    private val healingFenceArea4 = RectF(220f, 470f, 370f, 620f) // Fourth healing fence area
     private val cropArea = RectF(250f, 100f, 600f, 250f) // Crop growing area
 
     // Game settings
@@ -393,18 +396,25 @@ class FarmGameView(context: Context) : View(context) {
         // Draw crop area (soil)
         canvas.drawRect(cropArea, cropAreaPaint)
         
-        // Draw healing fence area
-        canvas.drawRect(healingFenceArea, fencePaint)
-        
-        // Draw fence posts
+        // Draw healing fence areas based on capacity
         val fencePostPaint = Paint().apply {
             color = Color.rgb(139, 69, 19)
             style = Paint.Style.FILL
         }
-        canvas.drawRect(healingFenceArea.left - 5f, healingFenceArea.top - 5f, 
-                       healingFenceArea.left + 5f, healingFenceArea.bottom + 5f, fencePostPaint)
-        canvas.drawRect(healingFenceArea.right - 5f, healingFenceArea.top - 5f, 
-                       healingFenceArea.right + 5f, healingFenceArea.bottom + 5f, fencePostPaint)
+        
+        val fenceAreas = listOf(healingFenceArea, healingFenceArea2, healingFenceArea3, healingFenceArea4)
+        
+        for (i in 0 until healingFenceCapacity.coerceAtMost(4)) {
+            val fence = fenceAreas[i]
+            // Draw fence outline
+            canvas.drawRect(fence, fencePaint)
+            
+            // Draw fence posts
+            canvas.drawRect(fence.left - 5f, fence.top - 5f, 
+                           fence.left + 5f, fence.bottom + 5f, fencePostPaint)
+            canvas.drawRect(fence.right - 5f, fence.top - 5f, 
+                           fence.right + 5f, fence.bottom + 5f, fencePostPaint)
+        }
     }
 
     private fun drawCrop(canvas: Canvas, crop: Crop) {
@@ -479,7 +489,7 @@ class FarmGameView(context: Context) : View(context) {
                         if (animal.state == AnimalState.SICK) {
                             // Start dragging sick animal
                             draggedAnimal = animal
-                        } else if (animal.state == AnimalState.HAPPY && healingFenceArea.contains(animal.x + animal.size / 2, animal.y + animal.size / 2)) {
+                        } else if (animal.state == AnimalState.HAPPY && isAnimalInAnyFence(animal)) {
                             // Remove healed animal from fence
                             removeAnimalFromFence(animal)
                         } else {
@@ -499,7 +509,7 @@ class FarmGameView(context: Context) : View(context) {
             MotionEvent.ACTION_UP -> {
                 // Check if sick animal was dropped in healing fence
                 draggedAnimal?.let { animal ->
-                    if (healingFenceArea.contains(animal.x + animal.size / 2, animal.y + animal.size / 2)) {
+                    if (isAnimalInAnyFence(animal)) {
                         startHealing(animal)
                     }
                     draggedAnimal = null
@@ -578,7 +588,7 @@ class FarmGameView(context: Context) : View(context) {
         do {
             animal.x = Random.nextFloat() * (width - 120f).coerceAtLeast(0f)
             animal.y = Random.nextFloat() * (height - 300f).coerceAtLeast(200f) + 200f
-        } while (healingFenceArea.contains(animal.x + animal.size / 2, animal.y + animal.size / 2))
+        } while (isAnimalInAnyFence(animal))
         
         score += 3
         
@@ -590,23 +600,38 @@ class FarmGameView(context: Context) : View(context) {
     }
 
     private fun startHealing(animal: FarmAnimal) {
+        val fenceAreas = listOf(healingFenceArea, healingFenceArea2, healingFenceArea3, healingFenceArea4)
+        
         // Check if fence has capacity
-        val animalsInFence = animals.count { 
-            it.state == AnimalState.HEALING || 
-            healingFenceArea.contains(it.x + it.size / 2, it.y + it.size / 2) 
-        }
+        val animalsInFence = animals.count { it.state == AnimalState.HEALING }
         
         if (animalsInFence >= healingFenceCapacity) {
             return // Fence is full
         }
         
+        // Find an available fence area
+        var targetFence: RectF? = null
+        for (i in 0 until healingFenceCapacity.coerceAtMost(4)) {
+            val fence = fenceAreas[i]
+            val animalInThisFence = animals.any { 
+                it.state == AnimalState.HEALING && 
+                fence.contains(it.x + it.size / 2, it.y + it.size / 2) 
+            }
+            if (!animalInThisFence) {
+                targetFence = fence
+                break
+            }
+        }
+        
+        if (targetFence == null) return // No available fence
+        
         animal.state = AnimalState.HEALING
         animal.healingStartTime = System.currentTimeMillis()
         score += 12
         
-        // Position animal in center of healing area
-        animal.x = healingFenceArea.centerX() - animal.size / 2
-        animal.y = healingFenceArea.centerY() - animal.size / 2
+        // Position animal in center of the available healing area
+        animal.x = targetFence.centerX() - animal.size / 2
+        animal.y = targetFence.centerY() - animal.size / 2
         
         // Check for new high score
         if (score > highScore) {
@@ -777,15 +802,16 @@ class FarmGameView(context: Context) : View(context) {
         val animalType = AnimalType.values().random()
         val bitmap = animalBitmaps[animalType] ?: return
         
-        // Find a safe spawn position (avoid fence and crop areas)
+        // Find a safe spawn position (avoid fence, crop areas, corners, and UI elements)
         var x: Float
         var y: Float
         var attempts = 0
         do {
-            x = Random.nextFloat() * (width - 120f).coerceAtLeast(0f)
-            y = Random.nextFloat() * (height - 300f).coerceAtLeast(200f) + 200f
+            // More restrictive spawn area: avoid corners and UI areas
+            x = Random.nextFloat() * (width - 450f).coerceAtLeast(150f) + 150f
+            y = Random.nextFloat() * (height - 650f).coerceAtLeast(300f) + 300f
             attempts++
-        } while ((healingFenceArea.contains(x + 60f, y + 60f) || 
+        } while ((isPositionInAnyFence(x + 60f, y + 60f) || 
                  cropArea.contains(x + 60f, y + 60f)) && attempts < 10)
         
         val animal = FarmAnimal(
@@ -797,6 +823,20 @@ class FarmGameView(context: Context) : View(context) {
         )
         
         animals.add(animal)
+    }
+    
+    private fun isAnimalInAnyFence(animal: FarmAnimal): Boolean {
+        val fenceAreas = listOf(healingFenceArea, healingFenceArea2, healingFenceArea3, healingFenceArea4)
+        return fenceAreas.take(healingFenceCapacity.coerceAtMost(4)).any { fence ->
+            fence.contains(animal.x + animal.size / 2, animal.y + animal.size / 2)
+        }
+    }
+    
+    private fun isPositionInAnyFence(x: Float, y: Float): Boolean {
+        val fenceAreas = listOf(healingFenceArea, healingFenceArea2, healingFenceArea3, healingFenceArea4)
+        return fenceAreas.take(healingFenceCapacity.coerceAtMost(4)).any { fence ->
+            fence.contains(x, y)
+        }
     }
 
     override fun onDetachedFromWindow() {
