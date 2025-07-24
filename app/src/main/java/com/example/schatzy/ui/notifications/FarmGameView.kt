@@ -23,7 +23,26 @@ class FarmGameView(context: Context) : View(context) {
         DISTRESSED,  // Red - needs rescue
         HAPPY,       // Green - well cared for
         NEUTRAL,     // Yellow - needs attention
-        SICK         // Purple - needs medicine
+        SICK,        // Purple - needs healing in fence
+        HEALING      // Blue - currently healing in fence
+    }
+
+    enum class CropState {
+        PLANTED,     // Small seedling
+        GROWING,     // Medium plant
+        READY        // Full grown, ready to harvest
+    }
+
+    data class Crop(
+        var x: Float,
+        var y: Float,
+        var state: CropState,
+        var plantedTime: Long = System.currentTimeMillis(),
+        val size: Float = 80f
+    ) {
+        fun getBounds(): RectF {
+            return RectF(x, y, x + size, y + size)
+        }
     }
 
     data class FarmAnimal(
@@ -34,6 +53,7 @@ class FarmGameView(context: Context) : View(context) {
         var bitmap: Bitmap,
         var lastCareTime: Long = System.currentTimeMillis(),
         var stateTimer: Long = 0,
+        var healingStartTime: Long = 0,
         val size: Float = 120f
     ) {
         fun getBounds(): RectF {
@@ -47,17 +67,25 @@ class FarmGameView(context: Context) : View(context) {
 
     // Game state
     private val animals = mutableListOf<FarmAnimal>()
+    private val crops = mutableListOf<Crop>()
     private var score = 0
     private var hearts = 50
     private var food = 20
-    private var medicine = 5
     private var coins = 100
     private var highScore = 0
 
+    // Farm areas
+    private val healingFenceArea = RectF(50f, 300f, 200f, 450f) // Healing fence area
+    private val cropArea = RectF(250f, 100f, 600f, 250f) // Crop growing area
+
     // Game settings
     private val maxAnimals = 8
+    private val maxCrops = 6
     private val animalSpawnRate = 5000L // 5 seconds
+    private val cropGrowthTime = 8000L // 8 seconds to grow fully
+    private val healingTime = 5000L // 5 seconds to heal
     private var lastSpawnTime = System.currentTimeMillis()
+    private var lastCropPlant = System.currentTimeMillis()
 
     // Animal images
     private val animalImageMap = mapOf(
@@ -88,6 +116,22 @@ class FarmGameView(context: Context) : View(context) {
         style = Paint.Style.FILL
     }
 
+    private val fencePaint = Paint().apply {
+        color = Color.rgb(139, 69, 19) // Brown fence
+        style = Paint.Style.STROKE
+        strokeWidth = 8f
+    }
+
+    private val cropAreaPaint = Paint().apply {
+        color = Color.rgb(101, 67, 33) // Brown soil
+        style = Paint.Style.FILL
+    }
+
+    private val cropPaint = Paint().apply {
+        isAntiAlias = true
+        style = Paint.Style.FILL
+    }
+
     private val gameLoop = object : Runnable {
         override fun run() {
             if (gameRunning) {
@@ -101,6 +145,7 @@ class FarmGameView(context: Context) : View(context) {
     init {
         loadHighScore()
         loadAnimalImages()
+        plantInitialCrops()
     }
 
     private fun loadAnimalImages() {
@@ -125,6 +170,21 @@ class FarmGameView(context: Context) : View(context) {
         repeat(3) {
             spawnAnimal()
         }
+    }
+
+    private fun plantInitialCrops() {
+        repeat(3) {
+            plantCrop()
+        }
+    }
+
+    private fun plantCrop() {
+        if (crops.size >= maxCrops) return
+
+        val x = cropArea.left + (cropArea.width() * Random.nextFloat() * 0.8f)
+        val y = cropArea.top + (cropArea.height() * Random.nextFloat() * 0.8f)
+        
+        crops.add(Crop(x, y, CropState.PLANTED))
     }
 
     private fun spawnAnimal() {
@@ -156,9 +216,20 @@ class FarmGameView(context: Context) : View(context) {
             lastSpawnTime = currentTime
         }
 
+        // Plant new crops periodically
+        if (currentTime - lastCropPlant > 6000L && crops.size < maxCrops) {
+            plantCrop()
+            lastCropPlant = currentTime
+        }
+
         // Update animal states
         for (animal in animals) {
             updateAnimalState(animal, currentTime)
+        }
+
+        // Update crop growth
+        for (crop in crops) {
+            updateCropGrowth(crop, currentTime)
         }
 
         // Remove animals that have been distressed too long
@@ -183,10 +254,37 @@ class FarmGameView(context: Context) : View(context) {
                 }
             }
             AnimalState.SICK -> {
-                // Sick animals need medicine, don't change state automatically
+                // Sick animals need to be moved to healing fence
+            }
+            AnimalState.HEALING -> {
+                // Check if healing is complete
+                if (currentTime - animal.healingStartTime > healingTime) {
+                    animal.state = AnimalState.HAPPY
+                    animal.lastCareTime = currentTime
+                }
             }
             AnimalState.DISTRESSED -> {
                 // Distressed animals stay distressed until rescued
+            }
+        }
+    }
+
+    private fun updateCropGrowth(crop: Crop, currentTime: Long) {
+        val growthTime = currentTime - crop.plantedTime
+        
+        when (crop.state) {
+            CropState.PLANTED -> {
+                if (growthTime > cropGrowthTime / 3) {
+                    crop.state = CropState.GROWING
+                }
+            }
+            CropState.GROWING -> {
+                if (growthTime > cropGrowthTime) {
+                    crop.state = CropState.READY
+                }
+            }
+            CropState.READY -> {
+                // Ready for harvest, no state change
             }
         }
     }
@@ -200,6 +298,14 @@ class FarmGameView(context: Context) : View(context) {
         if (!imagesLoaded) {
             canvas.drawText("Loading Farm...", width / 2f - 100f, height / 2f, textPaint)
             return
+        }
+
+        // Draw farm areas
+        drawFarmAreas(canvas)
+
+        // Draw crops
+        for (crop in crops) {
+            drawCrop(canvas, crop)
         }
 
         // Draw animals
@@ -225,9 +331,58 @@ class FarmGameView(context: Context) : View(context) {
             AnimalState.HAPPY -> Color.GREEN
             AnimalState.NEUTRAL -> Color.YELLOW
             AnimalState.SICK -> Color.MAGENTA
+            AnimalState.HEALING -> Color.BLUE
         }
         
         canvas.drawCircle(indicatorX, indicatorY, radius, statePaint)
+    }
+
+    private fun drawFarmAreas(canvas: Canvas) {
+        // Draw crop area (soil)
+        canvas.drawRect(cropArea, cropAreaPaint)
+        
+        // Draw healing fence area
+        canvas.drawRect(healingFenceArea, fencePaint)
+        
+        // Draw fence posts
+        val fencePostPaint = Paint().apply {
+            color = Color.rgb(139, 69, 19)
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(healingFenceArea.left - 5f, healingFenceArea.top - 5f, 
+                       healingFenceArea.left + 5f, healingFenceArea.bottom + 5f, fencePostPaint)
+        canvas.drawRect(healingFenceArea.right - 5f, healingFenceArea.top - 5f, 
+                       healingFenceArea.right + 5f, healingFenceArea.bottom + 5f, fencePostPaint)
+    }
+
+    private fun drawCrop(canvas: Canvas, crop: Crop) {
+        val centerX = crop.x + crop.size / 2
+        val centerY = crop.y + crop.size / 2
+        
+        when (crop.state) {
+            CropState.PLANTED -> {
+                // Small green circle (seedling)
+                cropPaint.color = Color.rgb(0, 128, 0)
+                canvas.drawCircle(centerX, centerY, 15f, cropPaint)
+            }
+            CropState.GROWING -> {
+                // Medium green circle (growing plant)
+                cropPaint.color = Color.rgb(0, 155, 0)
+                canvas.drawCircle(centerX, centerY, 25f, cropPaint)
+            }
+            CropState.READY -> {
+                // Large bright green circle (ready to harvest)
+                cropPaint.color = Color.rgb(0, 200, 0)
+                canvas.drawCircle(centerX, centerY, 35f, cropPaint)
+                // Add golden outline to show it's ready
+                val outlinePaint = Paint().apply {
+                    color = Color.YELLOW
+                    style = Paint.Style.STROKE
+                    strokeWidth = 4f
+                }
+                canvas.drawCircle(centerX, centerY, 35f, outlinePaint)
+            }
+        }
     }
 
     private fun drawUI(canvas: Canvas) {
@@ -238,31 +393,67 @@ class FarmGameView(context: Context) : View(context) {
         canvas.drawText("Score: $score", margin, margin + lineHeight, textPaint)
         canvas.drawText("Hearts: $hearts", margin, margin + lineHeight * 2, textPaint)
         canvas.drawText("Food: $food", margin, margin + lineHeight * 3, textPaint)
-        canvas.drawText("Medicine: $medicine", margin, margin + lineHeight * 4, textPaint)
         canvas.drawText("High Score: $highScore", width - 300f, margin + lineHeight, textPaint)
         
         // Instructions
-        textPaint.textSize = 30f
-        canvas.drawText("Tap animals to rescue them!", margin, height - 60f, textPaint)
+        textPaint.textSize = 28f
+        canvas.drawText("Tap ready crops to harvest!", margin, height - 100f, textPaint)
+        canvas.drawText("Drag sick animals to fence to heal!", margin, height - 70f, textPaint)
+        canvas.drawText("Tap animals to rescue/care for them!", margin, height - 40f, textPaint)
         textPaint.textSize = 40f
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (!imagesLoaded || event.action != MotionEvent.ACTION_DOWN) return false
+        if (!imagesLoaded) return false
 
         val touchX = event.x
         val touchY = event.y
 
-        // Check if touch hits any animal
-        for (animal in animals) {
-            if (animal.getBounds().contains(touchX, touchY)) {
-                rescueAnimal(animal)
-                return true
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                // Check if touch hits any crop
+                for (crop in crops) {
+                    if (crop.getBounds().contains(touchX, touchY) && crop.state == CropState.READY) {
+                        harvestCrop(crop)
+                        return true
+                    }
+                }
+
+                // Check if touch hits any animal
+                for (animal in animals) {
+                    if (animal.getBounds().contains(touchX, touchY)) {
+                        if (animal.state == AnimalState.SICK) {
+                            // Start dragging sick animal
+                            draggedAnimal = animal
+                        } else {
+                            rescueAnimal(animal)
+                        }
+                        return true
+                    }
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                // Handle dragging sick animals
+                draggedAnimal?.let { animal ->
+                    animal.x = touchX - animal.size / 2
+                    animal.y = touchY - animal.size / 2
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                // Check if sick animal was dropped in healing fence
+                draggedAnimal?.let { animal ->
+                    if (healingFenceArea.contains(animal.x + animal.size / 2, animal.y + animal.size / 2)) {
+                        startHealing(animal)
+                    }
+                    draggedAnimal = null
+                }
             }
         }
         
         return true
     }
+
+    private var draggedAnimal: FarmAnimal? = null
 
     private fun rescueAnimal(animal: FarmAnimal) {
         when (animal.state) {
@@ -275,12 +466,7 @@ class FarmGameView(context: Context) : View(context) {
                 }
             }
             AnimalState.SICK -> {
-                if (medicine >= 1) {
-                    medicine -= 1
-                    score += 15
-                    animal.state = AnimalState.HAPPY
-                    animal.lastCareTime = System.currentTimeMillis()
-                }
+                // Sick animals need to be dragged to fence, not tapped
             }
             AnimalState.NEUTRAL -> {
                 if (food >= 1) {
@@ -293,10 +479,47 @@ class FarmGameView(context: Context) : View(context) {
             AnimalState.HAPPY -> {
                 // Give bonus resources
                 hearts += 1
-                food += 1
                 score += 2
             }
+            AnimalState.HEALING -> {
+                // Animals healing cannot be interacted with
+            }
         }
+        
+        // Check for new high score
+        if (score > highScore) {
+            highScore = score
+            saveHighScore()
+        }
+    }
+
+    private fun harvestCrop(crop: Crop) {
+        food += 3
+        score += 8
+        crops.remove(crop)
+        
+        // Check for new high score
+        if (score > highScore) {
+            highScore = score
+            saveHighScore()
+        }
+        
+        // Plant a new crop after a short delay
+        handler.postDelayed({
+            if (crops.size < maxCrops) {
+                plantCrop()
+            }
+        }, 2000)
+    }
+
+    private fun startHealing(animal: FarmAnimal) {
+        animal.state = AnimalState.HEALING
+        animal.healingStartTime = System.currentTimeMillis()
+        score += 12
+        
+        // Position animal in center of healing area
+        animal.x = healingFenceArea.centerX() - animal.size / 2
+        animal.y = healingFenceArea.centerY() - animal.size / 2
         
         // Check for new high score
         if (score > highScore) {
@@ -325,10 +548,12 @@ class FarmGameView(context: Context) : View(context) {
         score = 0
         hearts = 50
         food = 20
-        medicine = 5
         animals.clear()
+        crops.clear()
+        draggedAnimal = null
         gameRunning = true
         spawnInitialAnimals()
+        plantInitialCrops()
         handler.post(gameLoop)
     }
 }
