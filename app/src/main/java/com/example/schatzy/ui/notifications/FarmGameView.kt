@@ -71,7 +71,7 @@ class FarmGameView(context: Context) : View(context) {
     private val animals = mutableListOf<FarmAnimal>()
     private val crops = mutableListOf<Crop>()
     private var score = 0
-    private var hearts = 0
+    private var hearts = 5
     private var food = 20
     private var coins = 100
     private var highScore = 0
@@ -93,7 +93,7 @@ class FarmGameView(context: Context) : View(context) {
     private var lastCropPlant = System.currentTimeMillis()
     
     // Upgrades system
-    private var healingFenceCapacity = 1 // Start with capacity for 1 animal
+    private var healingFenceCapacity = 0 // Start with no healing fence
     private var coinEarningRate = 1.0f // Coins per second multiplier
     private var lastCoinEarning = System.currentTimeMillis()
     
@@ -850,7 +850,7 @@ class FarmGameView(context: Context) : View(context) {
 
     fun restartGame() {
         score = 0
-        hearts = 0
+        hearts = 5
         food = 20
         coins = 100
         animals.clear()
@@ -860,7 +860,7 @@ class FarmGameView(context: Context) : View(context) {
         
         // Reset upgrades
         maxCrops = 0
-        healingFenceCapacity = 1
+        healingFenceCapacity = 0
         coinEarningRate = 1.0f
         for (upgrade in upgrades.values) {
             upgrade.currentLevel = 0
