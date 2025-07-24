@@ -373,23 +373,28 @@ class FarmGameView(context: Context) : View(context) {
     }
 
     private fun drawAnimal(canvas: Canvas, animal: FarmAnimal) {
-        // Draw animal bitmap
-        canvas.drawBitmap(animal.bitmap, animal.x, animal.y, null)
-        
-        // Draw state indicator circle
-        val indicatorX = animal.x + animal.size - 20f
-        val indicatorY = animal.y + 10f
-        val radius = 15f
-        
-        statePaint.color = when (animal.state) {
-            AnimalState.DISTRESSED -> Color.RED
-            AnimalState.HAPPY -> Color.GREEN
-            AnimalState.NEUTRAL -> Color.YELLOW
-            AnimalState.SICK -> Color.MAGENTA
-            AnimalState.HEALING -> Color.BLUE
+        // Draw colored outline for non-happy animals
+        if (animal.state != AnimalState.HAPPY) {
+            val outlinePaint = Paint().apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 6f
+                isAntiAlias = true
+                color = when (animal.state) {
+                    AnimalState.DISTRESSED -> Color.RED
+                    AnimalState.NEUTRAL -> Color.YELLOW
+                    AnimalState.SICK -> Color.MAGENTA
+                    AnimalState.HEALING -> Color.BLUE
+                    else -> Color.TRANSPARENT
+                }
+            }
+            
+            canvas.drawRect(animal.x - 3f, animal.y - 3f, 
+                           animal.x + animal.size + 3f, animal.y + animal.size + 3f, 
+                           outlinePaint)
         }
         
-        canvas.drawCircle(indicatorX, indicatorY, radius, statePaint)
+        // Draw animal bitmap
+        canvas.drawBitmap(animal.bitmap, animal.x, animal.y, null)
     }
 
     private fun drawFarmAreas(canvas: Canvas) {
