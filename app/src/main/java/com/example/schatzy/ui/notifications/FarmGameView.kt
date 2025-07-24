@@ -84,15 +84,27 @@ class FarmGameView(context: Context) : View(context) {
     private val maxAnimals = 8
     private val cropGridRows = 2
     private val cropGridCols = 4
-    private val maxCrops = cropGridRows * cropGridCols // 2x4 = 8 max crops
-    private val animalSpawnRate = 5000L // 5 seconds
+    private var maxCrops = 0 // Start with no crops, must buy them
     private val cropGrowthTime = 8000L // 8 seconds to grow fully
     private val healingTime = 5000L // 5 seconds to heal
-    private var lastSpawnTime = System.currentTimeMillis()
     private var lastCropPlant = System.currentTimeMillis()
+    
+    // Upgrades system
+    private var healingFenceCapacity = 1 // Start with capacity for 1 animal
+    private var coinEarningRate = 1.0f // Coins per second multiplier
+    private var lastCoinEarning = System.currentTimeMillis()
     
     // Grid for crop positions
     private val cropGrid = Array(cropGridRows) { Array(cropGridCols) { false } }
+    
+    // Heart animation system
+    data class FloatingHeart(
+        var x: Float,
+        var y: Float,
+        var startTime: Long,
+        val duration: Long = 1500L
+    )
+    private val floatingHearts = mutableListOf<FloatingHeart>()
 
     // Animal images
     private val animalImageMap = mapOf(
@@ -106,6 +118,7 @@ class FarmGameView(context: Context) : View(context) {
     private var animalBitmaps: Map<AnimalType, Bitmap> = emptyMap()
     private var wheatUngrownBitmap: Bitmap? = null
     private var wheatGrownBitmap: Bitmap? = null
+    private var heartsBitmap: Bitmap? = null
     private var imagesLoaded = false
 
     // Paint objects
@@ -170,11 +183,16 @@ class FarmGameView(context: Context) : View(context) {
             val wheatGrownOriginal = BitmapFactory.decodeResource(resources, R.drawable.wheat_grown)
             val wheatUngrown = Bitmap.createScaledBitmap(wheatUngrownOriginal, 80, 80, true)
             val wheatGrown = Bitmap.createScaledBitmap(wheatGrownOriginal, 80, 80, true)
+            
+            // Load hearts image
+            val heartsOriginal = BitmapFactory.decodeResource(resources, R.drawable.hearts)
+            val hearts = Bitmap.createScaledBitmap(heartsOriginal, 60, 60, true)
 
             post {
                 animalBitmaps = bitmapMap
                 wheatUngrownBitmap = wheatUngrown
                 wheatGrownBitmap = wheatGrown
+                heartsBitmap = hearts
                 imagesLoaded = true
                 spawnInitialAnimals()
                 handler.post(gameLoop)
@@ -184,15 +202,11 @@ class FarmGameView(context: Context) : View(context) {
     }
 
     private fun spawnInitialAnimals() {
-        repeat(3) {
-            spawnAnimal()
-        }
+        // Start with no animals - must buy them
     }
 
     private fun plantInitialCrops() {
-        repeat(4) {
-            plantCrop()
-        }
+        // Start with no crops - player must buy them
     }
 
     private fun plantCrop() {
@@ -239,16 +253,22 @@ class FarmGameView(context: Context) : View(context) {
     private fun updateGame() {
         val currentTime = System.currentTimeMillis()
         
-        // Spawn new animals periodically
-        if (currentTime - lastSpawnTime > animalSpawnRate && animals.size < maxAnimals) {
-            spawnAnimal()
-            lastSpawnTime = currentTime
-        }
-
-        // Plant new crops periodically
-        if (currentTime - lastCropPlant > 6000L && crops.size < maxCrops) {
+        // Plant new crops periodically (only if maxCrops > 0)
+        if (maxCrops > 0 && currentTime - lastCropPlant > 6000L && crops.size < maxCrops) {
             plantCrop()
             lastCropPlant = currentTime
+        }
+        
+        // Earn coins from healthy animals
+        if (currentTime - lastCoinEarning > 1000L) { // Every second
+            val happyAnimals = animals.count { it.state == AnimalState.HAPPY }
+            coins += (happyAnimals * coinEarningRate).toInt()
+            lastCoinEarning = currentTime
+        }
+        
+        // Update floating hearts animation
+        floatingHearts.removeAll { heart ->
+            currentTime - heart.startTime > heart.duration
         }
 
         // Update animal states
@@ -341,6 +361,9 @@ class FarmGameView(context: Context) : View(context) {
         for (animal in animals) {
             drawAnimal(canvas, animal)
         }
+        
+        // Draw floating hearts
+        drawFloatingHearts(canvas)
 
         // Draw UI
         drawUI(canvas)
@@ -397,13 +420,6 @@ class FarmGameView(context: Context) : View(context) {
                 wheatGrownBitmap?.let { bitmap ->
                     canvas.drawBitmap(bitmap, crop.x, crop.y, null)
                 }
-                // Add golden outline to show it's ready to harvest
-                val outlinePaint = Paint().apply {
-                    color = Color.YELLOW
-                    style = Paint.Style.STROKE
-                    strokeWidth = 4f
-                }
-                canvas.drawRect(crop.x, crop.y, crop.x + crop.size, crop.y + crop.size, outlinePaint)
             }
         }
     }
@@ -416,13 +432,23 @@ class FarmGameView(context: Context) : View(context) {
         canvas.drawText("Score: $score", margin, margin + lineHeight, textPaint)
         canvas.drawText("Hearts: $hearts", margin, margin + lineHeight * 2, textPaint)
         canvas.drawText("Food: $food", margin, margin + lineHeight * 3, textPaint)
+        canvas.drawText("Coins: $coins", margin, margin + lineHeight * 4, textPaint)
         canvas.drawText("High Score: $highScore", width - 300f, margin + lineHeight, textPaint)
         
+        // Upgrades info
+        textPaint.textSize = 30f
+        canvas.drawText("Crops: ${crops.size}/$maxCrops", width - 250f, margin + lineHeight * 2, textPaint)
+        canvas.drawText("Fence: ${animals.count { it.state == AnimalState.HEALING }}/$healingFenceCapacity", width - 250f, margin + lineHeight * 3, textPaint)
+        
+        // Upgrade buttons
+        drawUpgradeButtons(canvas)
+        
         // Instructions
-        textPaint.textSize = 28f
-        canvas.drawText("Tap ready crops to harvest!", margin, height - 100f, textPaint)
+        textPaint.textSize = 24f
+        canvas.drawText("Buy animals & crops with upgrades!", margin, height - 120f, textPaint)
+        canvas.drawText("Tap ready crops to harvest!", margin, height - 95f, textPaint)
         canvas.drawText("Drag sick animals to fence to heal!", margin, height - 70f, textPaint)
-        canvas.drawText("Tap animals to rescue/care for them!", margin, height - 40f, textPaint)
+        canvas.drawText("Tap animals to rescue/care for them!", margin, height - 45f, textPaint)
         textPaint.textSize = 40f
     }
 
@@ -440,6 +466,11 @@ class FarmGameView(context: Context) : View(context) {
                         harvestCrop(crop)
                         return true
                     }
+                }
+
+                // Check if touch hits any upgrade button
+                if (handleUpgradeButtonTouch(touchX, touchY)) {
+                    return true
                 }
 
                 // Check if touch hits any animal
@@ -503,9 +534,10 @@ class FarmGameView(context: Context) : View(context) {
                 }
             }
             AnimalState.HAPPY -> {
-                // Give bonus resources
+                // Give bonus resources and show heart animation
                 hearts += 1
                 score += 2
+                addFloatingHeart(animal.x + animal.size / 2, animal.y)
             }
             AnimalState.HEALING -> {
                 // Animals healing cannot be interacted with
@@ -558,6 +590,16 @@ class FarmGameView(context: Context) : View(context) {
     }
 
     private fun startHealing(animal: FarmAnimal) {
+        // Check if fence has capacity
+        val animalsInFence = animals.count { 
+            it.state == AnimalState.HEALING || 
+            healingFenceArea.contains(it.x + it.size / 2, it.y + it.size / 2) 
+        }
+        
+        if (animalsInFence >= healingFenceCapacity) {
+            return // Fence is full
+        }
+        
         animal.state = AnimalState.HEALING
         animal.healingStartTime = System.currentTimeMillis()
         score += 12
@@ -582,6 +624,180 @@ class FarmGameView(context: Context) : View(context) {
         val sharedPrefs = context.getSharedPreferences("farm_game", Context.MODE_PRIVATE)
         sharedPrefs.edit().putInt("high_score", highScore).apply()
     }
+    
+    private fun addFloatingHeart(x: Float, y: Float) {
+        floatingHearts.add(FloatingHeart(x, y, System.currentTimeMillis()))
+    }
+    
+    private fun drawFloatingHearts(canvas: Canvas) {
+        val currentTime = System.currentTimeMillis()
+        for (heart in floatingHearts) {
+            val elapsed = currentTime - heart.startTime
+            val progress = elapsed.toFloat() / heart.duration
+            if (progress <= 1f) {
+                val alpha = (255 * (1f - progress)).toInt().coerceIn(0, 255)
+                val yOffset = progress * 100f // Float upward
+                
+                val paint = Paint().apply {
+                    this.alpha = alpha
+                }
+                
+                heartsBitmap?.let { bitmap ->
+                    canvas.drawBitmap(bitmap, heart.x - 30f, heart.y - yOffset, paint)
+                }
+            }
+        }
+    }
+    
+    // Upgrade system
+    data class Upgrade(
+        val name: String,
+        val description: String,
+        val cost: Int,
+        val maxLevel: Int,
+        var currentLevel: Int = 0
+    )
+    
+    private val upgrades = mutableMapOf(
+        "crop_slot" to Upgrade("Add Crop Slot", "Adds 1 more crop slot", 50, 8),
+        "fence_capacity" to Upgrade("Expand Fence", "Heal +1 more animal", 100, 4),
+        "coin_rate" to Upgrade("Coin Boost", "Earn coins 25% faster", 75, 5),
+        "buy_animal" to Upgrade("Buy Animal", "Purchase a new animal", 30, 999),
+        "crop_growth" to Upgrade("Fast Growth", "Crops grow 20% faster", 90, 4)
+    )
+    
+    private fun drawUpgradeButtons(canvas: Canvas) {
+        val buttonWidth = 140f
+        val buttonHeight = 80f
+        val margin = 10f
+        val startX = width - 300f
+        val startY = height - 450f
+        
+        val buttonPaint = Paint().apply {
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        
+        val borderPaint = Paint().apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+            color = Color.WHITE
+            isAntiAlias = true
+        }
+        
+        textPaint.textSize = 22f
+        var yOffset = 0f
+        
+        for ((key, upgrade) in upgrades) {
+            if (upgrade.currentLevel >= upgrade.maxLevel) continue
+            
+            val cost = upgrade.cost * (upgrade.currentLevel + 1)
+            val canAfford = coins >= cost
+            
+            buttonPaint.color = if (canAfford) Color.rgb(0, 150, 0) else Color.rgb(150, 0, 0)
+            
+            val buttonRect = RectF(
+                startX, startY + yOffset,
+                startX + buttonWidth, startY + yOffset + buttonHeight
+            )
+            
+            canvas.drawRect(buttonRect, buttonPaint)
+            canvas.drawRect(buttonRect, borderPaint)
+            
+            // Text
+            canvas.drawText(upgrade.name, startX + 5f, startY + yOffset + 25f, textPaint)
+            canvas.drawText("$${cost}", startX + 5f, startY + yOffset + 50f, textPaint)
+            canvas.drawText("Lv ${upgrade.currentLevel}", startX + 5f, startY + yOffset + 75f, textPaint)
+            
+            yOffset += buttonHeight + margin
+        }
+        
+        textPaint.textSize = 40f
+    }
+    
+    private fun handleUpgradeButtonTouch(touchX: Float, touchY: Float): Boolean {
+        val buttonWidth = 140f
+        val buttonHeight = 80f
+        val margin = 10f
+        val startX = width - 300f
+        val startY = height - 450f
+        
+        var yOffset = 0f
+        
+        for ((key, upgrade) in upgrades) {
+            if (upgrade.currentLevel >= upgrade.maxLevel) continue
+            
+            val cost = upgrade.cost * (upgrade.currentLevel + 1)
+            
+            val buttonRect = RectF(
+                startX, startY + yOffset,
+                startX + buttonWidth, startY + yOffset + buttonHeight
+            )
+            
+            if (buttonRect.contains(touchX, touchY) && coins >= cost) {
+                purchaseUpgrade(key, cost)
+                return true
+            }
+            
+            yOffset += buttonHeight + margin
+        }
+        
+        return false
+    }
+    
+    private fun purchaseUpgrade(upgradeKey: String, cost: Int) {
+        val upgrade = upgrades[upgradeKey] ?: return
+        
+        coins -= cost
+        upgrade.currentLevel++
+        
+        when (upgradeKey) {
+            "crop_slot" -> {
+                maxCrops++
+            }
+            "fence_capacity" -> {
+                healingFenceCapacity++
+            }
+            "coin_rate" -> {
+                coinEarningRate += 0.25f
+            }
+            "buy_animal" -> {
+                purchaseAnimal()
+            }
+            "crop_growth" -> {
+                // Reduce crop growth time by 20% each level
+                // This would require modifying the growth logic
+            }
+        }
+    }
+
+    private fun purchaseAnimal() {
+        if (animals.size >= maxAnimals) return
+        
+        val animalType = AnimalType.values().random()
+        val bitmap = animalBitmaps[animalType] ?: return
+        
+        // Find a safe spawn position (avoid fence and crop areas)
+        var x: Float
+        var y: Float
+        var attempts = 0
+        do {
+            x = Random.nextFloat() * (width - 120f).coerceAtLeast(0f)
+            y = Random.nextFloat() * (height - 300f).coerceAtLeast(200f) + 200f
+            attempts++
+        } while ((healingFenceArea.contains(x + 60f, y + 60f) || 
+                 cropArea.contains(x + 60f, y + 60f)) && attempts < 10)
+        
+        val animal = FarmAnimal(
+            x = x,
+            y = y,
+            type = animalType,
+            state = AnimalState.DISTRESSED,
+            bitmap = bitmap
+        )
+        
+        animals.add(animal)
+    }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
@@ -593,9 +809,19 @@ class FarmGameView(context: Context) : View(context) {
         score = 0
         hearts = 50
         food = 20
+        coins = 100
         animals.clear()
         crops.clear()
+        floatingHearts.clear()
         draggedAnimal = null
+        
+        // Reset upgrades
+        maxCrops = 0
+        healingFenceCapacity = 1
+        coinEarningRate = 1.0f
+        for (upgrade in upgrades.values) {
+            upgrade.currentLevel = 0
+        }
         
         // Clear crop grid
         for (row in 0 until cropGridRows) {
