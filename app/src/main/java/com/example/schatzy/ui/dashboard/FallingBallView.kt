@@ -29,6 +29,7 @@ class FallingBallView(context: Context) : View(context) {
     private val fallingImages = mutableListOf<FallingImage>()
     private var score = 0
     private var lives = 3
+    private var highScore = 0
 
     private val goodImageResIds = listOf(
         R.drawable.pasta,
@@ -90,11 +91,17 @@ class FallingBallView(context: Context) : View(context) {
             invalidate()
             if (lives > 0) {
                 handler.postDelayed(this, frameRate)
+            } else {
+                if (score > highScore) {
+                    highScore = score
+                    saveHighScore()
+                }
             }
         }
     }
 
     init {
+        loadHighScore()
         Thread {
             val goodBitmaps = goodImageResIds.map {
                 val bmp = BitmapFactory.decodeResource(resources, it)
@@ -167,6 +174,7 @@ class FallingBallView(context: Context) : View(context) {
         textPaint.textAlign = Paint.Align.LEFT
         canvas.drawText("Score: $score", 20f, 60f, textPaint)
         canvas.drawText("Lives: $lives", 20f, 120f, textPaint)
+        canvas.drawText("High Score: $highScore", 20f, 180f, textPaint)
     }
 
     override fun onDetachedFromWindow() {
@@ -195,6 +203,16 @@ class FallingBallView(context: Context) : View(context) {
         if (imagesLoaded) {
             amelieY = h.toFloat() - amelieBitmap.height - amelieOffsetFromBottom
         }
+    }
+
+    private fun loadHighScore() {
+        val sharedPrefs = context.getSharedPreferences("falling_vegetables_game", Context.MODE_PRIVATE)
+        highScore = sharedPrefs.getInt("high_score", 0)
+    }
+
+    private fun saveHighScore() {
+        val sharedPrefs = context.getSharedPreferences("falling_vegetables_game", Context.MODE_PRIVATE)
+        sharedPrefs.edit().putInt("high_score", highScore).apply()
     }
 
 }
